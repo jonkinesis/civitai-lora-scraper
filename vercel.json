@@ -1,8 +1,7 @@
 {
-  "version": 2,
   "functions": {
     "api/sync-loras.js": {
-      "runtime": "nodejs18"
+      "runtime": "nodejs20.x"
     }
   }
 }
