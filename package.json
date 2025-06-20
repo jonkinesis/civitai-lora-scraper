@@ -1,10 +1,7 @@
 {
-  "name": "civitai-lora-scraper",
-  "version": "1.0.0",
-  "private": true,
   "type": "module",
   "dependencies": {
-    "puppeteer": "^21.3.8",
-    "@supabase/supabase-js": "^2.39.4"
+    "@browserless/puppeteer": "^1.9.0",
+    "@supabase/supabase-js": "^2.49.8"
   }
 }
