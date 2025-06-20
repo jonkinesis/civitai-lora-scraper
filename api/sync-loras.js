@@ -1,36 +1,69 @@
-import puppeteer from "puppeteer";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  let browser = null;
-
   try {
-    console.log("Launching Puppeteer...");
+    // Launch browserless remotely
+    const response = await fetch('https://chrome.browserless.io/content?token=' + browserlessKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: `
+          const puppeteer = require("puppeteer-core");
+          const browser = await puppeteer.connect({
+            browserWSEndpoint: "wss://chrome.browserless.io?token=${browserlessKey}"
+          });
+          const page = await browser.newPage();
+          await page.goto("https://civitai.com/models?types=LoRA&sort=downloadCount", { waitUntil: "networkidle2" });
 
-    browser = await puppeteer.launch({
-      headless: true,
+          // Auto-scroll to load more content
+          let previousHeight;
+          while (true) {
+            previousHeight = await page.evaluate('document.body.scrollHeight');
+            await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+            await page.waitForTimeout(1500);
+            const newHeight = await page.evaluate('document.body.scrollHeight');
+            if (newHeight === previousHeight) break;
+          }
+
+          const models = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll("a[href^='/models/']")).map(a => {
+              const name = a.querySelector("h3")?.innerText || "No Name";
+              const url = "https://civitai.com" + a.getAttribute("href");
+              const modelId = url.split("/models/")[1]?.split("/")[0];
+              return { name, url, modelId };
+            });
+          });
+
+          await browser.close();
+          return models;
+        `,
+      }),
     });
 
-    const page = await browser.newPage();
+    const data = await response.json();
 
-    console.log("Navigating to CivitAI...");
-    await page.goto("https://civitai.com/models?types=LoRA&sort=downloadCount", {
-      waitUntil: "networkidle2",
-    });
+    if (!data) {
+      throw new Error("No data returned from Browserless");
+    }
 
-    await page.waitForTimeout(2000);  // Let the page fully settle
+    // Insert into Supabase (optional: you can fully customize schema here)
+    for (const model of data) {
+      await supabase.from('loras').upsert({
+        civitai_id: model.modelId,
+        name: model.name,
+        civitai_url: model.url,
+        model_type: 'Stable Diffusion', // (or Flux Dev, Flux Pro etc based on your mapping)
+      });
+    }
 
-    console.log("✅ Successfully navigated.");
-    res.status(200).json({ success: true });
-
+    res.status(200).json({ success: true, total: data.length });
   } catch (err) {
-    console.error("❌ Scraping failed:", err);
-    res.status(500).json({ error: "Failed to scrape." });
-  } finally {
-    if (browser) await browser.close();
+    console.error("Scraper error:", err);
+    res.status(500).json({ error: 'Failed to scrape.' });
   }
 }
