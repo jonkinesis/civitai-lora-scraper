@@ -1,69 +1,58 @@
+// Vercel Serverless Function for CivitAI LoRA Scraping via Browserless
+
+import puppeteer from '@browserless/puppeteer';
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+  const browserlessApiKey = process.env.BROWSERLESS_API_KEY;
+
+  if (!browserlessApiKey) {
+    return res.status(500).json({ error: 'Missing Browserless API key' });
+  }
+
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    // Launch browserless remotely
-    const response = await fetch('https://chrome.browserless.io/content?token=' + browserlessKey, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: `
-          const puppeteer = require("puppeteer-core");
-          const browser = await puppeteer.connect({
-            browserWSEndpoint: "wss://chrome.browserless.io?token=${browserlessKey}"
-          });
-          const page = await browser.newPage();
-          await page.goto("https://civitai.com/models?types=LoRA&sort=downloadCount", { waitUntil: "networkidle2" });
-
-          // Auto-scroll to load more content
-          let previousHeight;
-          while (true) {
-            previousHeight = await page.evaluate('document.body.scrollHeight');
-            await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-            await page.waitForTimeout(1500);
-            const newHeight = await page.evaluate('document.body.scrollHeight');
-            if (newHeight === previousHeight) break;
-          }
-
-          const models = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll("a[href^='/models/']")).map(a => {
-              const name = a.querySelector("h3")?.innerText || "No Name";
-              const url = "https://civitai.com" + a.getAttribute("href");
-              const modelId = url.split("/models/")[1]?.split("/")[0];
-              return { name, url, modelId };
-            });
-          });
-
-          await browser.close();
-          return models;
-        `,
-      }),
+    const browser = await puppeteer.connect({
+      browserWSEndpoint: `wss://chrome.browserless.io?token=${browserlessApiKey}`
     });
 
-    const data = await response.json();
+    const page = await browser.newPage();
+    await page.goto('https://civitai.com/models?types=LoRA&sort=downloadCount', { waitUntil: 'networkidle2' });
 
-    if (!data) {
-      throw new Error("No data returned from Browserless");
+    // Auto scroll to load full content
+    let previousHeight;
+    while (true) {
+      previousHeight = await page.evaluate('document.body.scrollHeight');
+      await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+      await page.waitForTimeout(1000);
+      const newHeight = await page.evaluate('document.body.scrollHeight');
+      if (newHeight === previousHeight) break;
     }
 
-    // Insert into Supabase (optional: you can fully customize schema here)
-    for (const model of data) {
-      await supabase.from('loras').upsert({
-        civitai_id: model.modelId,
-        name: model.name,
-        civitai_url: model.url,
-        model_type: 'Stable Diffusion', // (or Flux Dev, Flux Pro etc based on your mapping)
+    // Extract LoRA data
+    const loras = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.mantine-Card-root')).map(card => {
+        const title = card.querySelector('.mantine-Text-root')?.innerText || '';
+        const imageUrl = card.querySelector('img')?.src || '';
+        const link = card.querySelector('a')?.href || '';
+        return { title, imageUrl, link };
       });
+    });
+
+    await browser.close();
+
+    // Insert into Supabase
+    for (const lora of loras) {
+      await supabase.from('loras').upsert(lora, { onConflict: 'link' });
     }
 
-    res.status(200).json({ success: true, total: data.length });
+    res.status(200).json({ message: 'Scraping completed', count: loras.length });
+
   } catch (err) {
-    console.error("Scraper error:", err);
+    console.error(err);
     res.status(500).json({ error: 'Failed to scrape.' });
   }
 }
