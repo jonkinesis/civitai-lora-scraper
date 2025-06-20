@@ -1,9 +1,0 @@
-{
-  "name": "civitai-lora-scraper",
-  "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "puppeteer": "^21.3.8",
-    "@supabase/supabase-js": "^2.49.8"
-  }
-}
