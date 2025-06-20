@@ -1,41 +1,36 @@
 import { createClient } from '@supabase/supabase-js';
+import playwright from 'playwright-core';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-
-  if (!supabaseUrl || !supabaseKey || !browserlessKey) {
-    return res.status(500).json({ error: 'Missing environment variables.' });
-  }
-
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  let browser;
   try {
-    // Call Browserless to get the raw HTML
-    const response = await fetch(`https://chrome.browserless.io/content?token=${browserlessKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: 'https://civitai.com/models?types=LoRA&sort=downloadCount',
-        waitFor: 'networkidle2'
-      })
+    browser = await playwright.chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+    const page = await browser.newPage();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Browserless failed: ${errorText}`);
-    }
+    await page.goto("https://civitai.com/models?types=LoRA&sort=downloadCount", { waitUntil: "networkidle" });
 
-    const html = await response.text();
+    // Example scrape — extract model names
+    const modelNames = await page.$$eval('.model-card .model-card-name', nodes =>
+      nodes.map(n => n.textContent.trim())
+    );
 
-    console.log('✅ Successfully scraped CivitAI page');
-    
-    // TODO: Parse the HTML and save data to Supabase here
-    // For now, just return simple success
-    return res.status(200).json({ message: 'Scrape complete.', length: html.length });
+    console.log("Scraped model names:", modelNames);
+
+    // You can save to Supabase if you want
+    // await supabase.from('loras').insert(modelNames.map(name => ({ name })));
+
+    res.status(200).json({ models: modelNames });
   } catch (err) {
-    console.error('Scraping failed:', err);
-    return res.status(500).json({ error: 'Failed to scrape.' });
+    console.error(err);
+    res.status(500).json({ error: "Failed to scrape." });
+  } finally {
+    if (browser) await browser.close();
   }
 }
