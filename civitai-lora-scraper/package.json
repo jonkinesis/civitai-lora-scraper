@@ -1,0 +1,12 @@
+{
+  "name": "civitai-lora-scraper",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node api/sync-loras.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.6",
+    "playwright-core": "^1.43.1"
+  }
+}
