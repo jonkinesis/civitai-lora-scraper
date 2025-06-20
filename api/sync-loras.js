@@ -1,5 +1,4 @@
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 import { createClient } from "@supabase/supabase-js";
 
 export default async function handler(req, res) {
@@ -10,16 +9,10 @@ export default async function handler(req, res) {
   let browser = null;
 
   try {
-    console.log("Launching headless browser...");
-
-    const executablePath = await chromium.executablePath || '/usr/bin/chromium-browser';
+    console.log("Launching Puppeteer...");
 
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath,
       headless: true,
-      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
@@ -29,30 +22,15 @@ export default async function handler(req, res) {
       waitUntil: "networkidle2",
     });
 
-    // Auto-scroll to load all results
-    let previousHeight;
-    try {
-      while (true) {
-        previousHeight = await page.evaluate("document.body.scrollHeight");
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-        await page.waitForTimeout(1500);
-        const newHeight = await page.evaluate("document.body.scrollHeight");
-        if (newHeight === previousHeight) break;
-      }
-    } catch (err) {
-      console.log("Auto-scrolling complete.");
-    }
+    await page.waitForTimeout(2000);  // Let the page fully settle
 
-    // ✅ Everything working up to here.
-    console.log("✅ Scraping complete.");
+    console.log("✅ Successfully navigated.");
     res.status(200).json({ success: true });
 
   } catch (err) {
     console.error("❌ Scraping failed:", err);
     res.status(500).json({ error: "Failed to scrape." });
   } finally {
-    if (browser !== null) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
