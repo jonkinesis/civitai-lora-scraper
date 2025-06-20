@@ -11,11 +11,15 @@ export default async function handler(req, res) {
 
   try {
     console.log("Launching headless browser...");
+
+    const executablePath = await chromium.executablePath || '/usr/bin/chromium-browser';
+
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
+      executablePath,
+      headless: true,
+      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
@@ -39,11 +43,12 @@ export default async function handler(req, res) {
       console.log("Auto-scrolling complete.");
     }
 
-    // [Replace this section with your full scraping logic later]
+    // ✅ Everything working up to here.
     console.log("✅ Scraping complete.");
     res.status(200).json({ success: true });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ Scraping failed:", err);
     res.status(500).json({ error: "Failed to scrape." });
   } finally {
     if (browser !== null) {
