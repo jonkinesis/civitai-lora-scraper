@@ -1,46 +1,40 @@
+import fetch from 'node-fetch';
 import { createClient } from '@supabase/supabase-js';
 
-// Build your Browserless URL:
-const browserlessKey = process.env.BROWSERLESS_API_KEY;
-const browserlessURL = `https://chrome.browserless.io?token=${browserlessKey}`;
-
 export default async function handler(req, res) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    console.log("Starting Browserless scrape...");
-
-    // Use Browserless directly to scrape the page:
-    const scrapePayload = {
-      url: "https://civitai.com/models?types=LoRA&sort=downloadCount",
-      elements: [
-        {
-          selector: ".mantine-Grid-root .mantine-Paper-root",
-          properties: ["innerText", "href"]
-        }
-      ]
-    };
-
-    const response = await fetch(`${browserlessURL}/scrape`, {
+    const response = await fetch(`https://chrome.browserless.io/content?token=${browserlessKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(scrapePayload)
+      body: JSON.stringify({
+        url: 'https://civitai.com/models?types=LoRA&sort=downloadCount',
+        waitFor: 'networkidle2',
+        screenshot: false,
+        html: true,
+      }),
     });
-
-    if (!response.ok) {
-      throw new Error(`Browserless scrape failed: ${response.statusText}`);
-    }
 
     const data = await response.json();
 
-    // You would now parse the data here as needed and save to Supabase
-    console.log("Scrape completed:", data);
+    if (!data || !data.html) {
+      throw new Error('No HTML returned');
+    }
 
-    res.status(200).json({ message: 'Scrape successful!', data });
+    // Parse the HTML however you want here, for now just log size:
+    console.log(`Downloaded page HTML length: ${data.html.length}`);
+
+    // Example: save to Supabase (optional, modify as needed)
+    await supabase.from('lora_scrapes').insert([{ html: data.html }]);
+
+    res.status(200).json({ message: 'Scraping complete' });
   } catch (err) {
-    console.error('Scraper Error:', err);
+    console.error('Scraping failed:', err);
     res.status(500).json({ error: 'Failed to scrape.' });
   }
 }
